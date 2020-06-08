@@ -5,3 +5,6 @@
  All images were hand drawn by my sun and doughter!  
  
  Link of the game jam: https://itch.io/jam/i-cant-draw-but-want-to-make-a-game-again
+ 
+ Playable demo:
+ https://murchelon.github.io/SunBurn/SunBurn/Build/index.html
