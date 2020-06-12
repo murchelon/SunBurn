@@ -6,6 +6,7 @@ using System;
 using Random = UnityEngine.Random;
 using SubBurn;
 using UnityEditor;
+using TMPro;
 
 namespace SunBurn
 {
@@ -51,7 +52,55 @@ namespace SunBurn
         }
     }
 
+    public class Quadrant
+    {
+        public float X_TL;
+        public float Y_TL;
 
+        public float X_TR;
+        public float Y_TR;
+
+        public float X_BL;
+        public float Y_BL;
+
+        public float X_BR;
+        public float Y_BR;
+        
+        public float offset_from_Zero_X;
+        public float offset_from_Zero_Y_to_top;
+        public float offset_from_Zero_Y_to_bottom;
+
+        public float gameArea_H;
+
+        public float Y_Middle_HOR;
+        public float X_Middle_VERT;
+
+        public Quadrant(float _total_W, float _total_H)
+        {
+            this.offset_from_Zero_X = _total_W / 2 - 0.13f;
+            this.offset_from_Zero_Y_to_top = _total_H * 0.21f;
+            this.offset_from_Zero_Y_to_bottom = (_total_H / 2) * 0.97f;
+      
+            this.gameArea_H = offset_from_Zero_Y_to_top + offset_from_Zero_Y_to_bottom; 
+
+            this.Y_Middle_HOR = (offset_from_Zero_Y_to_bottom * -1) + (this.gameArea_H / 2);
+            this.X_Middle_VERT = 0f;
+
+            this.X_TL = offset_from_Zero_X * -1f;   // top left
+            this.Y_TL = offset_from_Zero_Y_to_top; //top left
+
+            this.X_TR = offset_from_Zero_X; // top right
+            this.Y_TR = offset_from_Zero_Y_to_top; // top right
+
+            this.X_BL = offset_from_Zero_X * -1f; // bottom left
+            this.Y_BL = offset_from_Zero_Y_to_bottom * -1f;// bottom left
+
+            this.X_BR = offset_from_Zero_X; // bottom right
+            this.Y_BR = offset_from_Zero_Y_to_bottom * -1f; // botom right
+
+
+        }
+    }
 
     public class GameLogic : MonoBehaviour
     {
@@ -59,6 +108,8 @@ namespace SunBurn
         public float timeToDrawNewItem;
 
         public float timeToFadeAndDestroyItem;
+
+        public float timeBeingInvencible;
 
         // Sprites de itens
         private Sprite sprite_Item_Bucket;
@@ -100,6 +151,8 @@ namespace SunBurn
         private IEnumerator coroutineSunState;
         private IEnumerator coroutineDrawItens;
         private IEnumerator coroutineVanishItem;
+        private IEnumerator coroutineTimer;
+        private IEnumerator coroutineTimeInvensible; 
 
 
         private Animator glowAnimator;
@@ -122,6 +175,23 @@ namespace SunBurn
         private float backWidth;
         private float backHeight;
         private GameObject player;
+        private SpriteRenderer playerRender;
+
+        private TextMeshPro txtScore;
+        //private TextMeshPro txtScoreInPanel;
+        private GameObject txtScoreInPanel;
+        
+
+        private SpriteRenderer sprRendSunBlockCounter;
+        private TextMeshPro txtLabelSunBlockCounter;
+
+        private TextMeshPro txtLabelTimerValue;
+
+        private Quadrant gameQuadrantsCoord;
+
+        private GameObject panelEndGame;
+        
+        private float timeSinceBegin;
 
         enum SunState
         {
@@ -132,13 +202,14 @@ namespace SunBurn
 
 
 
+
         void OnGUI()
         {
             GUIStyle style = new GUIStyle();
 
-            style.normal.textColor = Color.black;
+            style.normal.textColor = Color.gray;
 
-            GUI.Label(new Rect(0, 0, 100, 100), (1.0f / Time.smoothDeltaTime).ToString(), style);
+            GUI.Label(new Rect(0, 0, 100, 100), "FPS: " + (1.0f / Time.smoothDeltaTime).ToString(), style);
         }
 
 
@@ -153,6 +224,8 @@ namespace SunBurn
             timeToDrawNewItem = 2f; // 
             timeToFadeAndDestroyItem = 0.1f;  // the less the number is, the fastest the fade will be
 
+            timeBeingInvencible = 3f;
+
             isSunCyclingStates = true;
 
             sunStates = SunState.NO_Sun;
@@ -166,8 +239,14 @@ namespace SunBurn
             debug_Allow_Coroutine_Itens = true;
             debug_Allow_Coroutine_VanishItem = true;
 
-            GameManager.Instance.playareaOffsetFromTop = 2.8f;
+            GameManager.Instance.playareaOffsetFromTop = 2.6f;
+            GameManager.Instance.score = 0;
+            GameManager.Instance.isOnShade = false;
+            GameManager.Instance.numberSunBlocks = 0;
+            GameManager.Instance.playerIsDead = false;
+            GameManager.Instance.isInvencible = false;
 
+            
 
             percScaleItemSize = 0.25f;
 
@@ -202,19 +281,86 @@ namespace SunBurn
 
             // get the player
             player = GameObject.Find("Player").gameObject;
+            playerRender = player.GetComponent<SpriteRenderer>();
 
             // position player
             player.transform.position = new Vector3(-2.6f, -3.8f, 1f);
             //player.transform.position = new Vector3(0, 0, 1f);
 
-            player.GetComponent<PlayerMove>().moveSpeed = 2.8f;
+            player.GetComponent<PlayerMove>().moveSpeed = 3.3f;
 
 
+            txtScore = GameObject.Find("label_ScoreValue").gameObject.GetComponent<TextMeshPro>();
+            txtScore.SetText(GameManager.Instance.score.ToString());
 
 
             // define the size of the area on where the itens appear
             backWidth = GameObject.Find("Background").GetComponent<SpriteRenderer>().bounds.size.x;
             backHeight = GameObject.Find("Background").GetComponent<SpriteRenderer>().bounds.size.y;
+
+
+            // define the quadrants and its borders
+            gameQuadrantsCoord = new Quadrant(backWidth, backHeight);
+
+            // draw the umbrella:
+            int umbrellaQuadrant;
+            Vector3 umbrellaPos;
+            bool flipUmbrella;
+
+            if (Random.Range(0, 2) == 0)
+            {
+                umbrellaQuadrant = 1;
+            }
+            else
+            {
+                umbrellaQuadrant = 3;
+            }
+
+
+            umbrellaPos = GetXYforItem(umbrellaQuadrant, new Vector2(sprite_Item_Umbrella.bounds.size.x, sprite_Item_Umbrella.bounds.size.y), percScaleItemSize, "INCLUDE");
+
+            // Debug.Log("umbrellaQuadrant = " + umbrellaQuadrant + " | pos = " + umbrellaPos);
+
+
+            if (Random.Range(0, 2) == 0)
+            {
+                flipUmbrella = false;
+            }
+            else
+            {
+                flipUmbrella = true;
+            }
+
+            GameObject go = RenderItemInScreen(sprite_Item_Umbrella,
+                                               umbrellaPos,
+                                               transform,
+                                               "UMBRELLA",
+                                               "fore",
+                                               0,
+                                               flipUmbrella
+                                               );
+
+
+            sprRendSunBlockCounter = GameObject.Find("SunBlockCounter").GetComponent<SpriteRenderer>();
+            sprRendSunBlockCounter.color = new Color(sprRendSunBlockCounter.color.r, sprRendSunBlockCounter.color.g, sprRendSunBlockCounter.color.b, 0);
+
+            txtLabelSunBlockCounter = GameObject.Find("label_SunBlockCounter").gameObject.GetComponent<TextMeshPro>();
+            txtLabelSunBlockCounter.SetText(GameManager.Instance.numberSunBlocks.ToString());
+            txtLabelSunBlockCounter.color = new Color(txtLabelSunBlockCounter.color.r, txtLabelSunBlockCounter.color.g, txtLabelSunBlockCounter.color.b, 0);
+
+            txtLabelTimerValue = GameObject.Find("label_TimerValue").gameObject.GetComponent<TextMeshPro>();
+            txtLabelTimerValue.SetText("00:00:00");
+
+            txtScoreInPanel = GameObject.Find("label_TimerValue").gameObject;
+            //txtScoreInPanel.SetText(GameManager.Instance.score.ToString());
+
+
+            //Canvas_Dead
+
+            panelEndGame = GameObject.Find("Canvas_Dead").gameObject;
+            panelEndGame.SetActive(false);
+
+
 
         }
 
@@ -222,13 +368,131 @@ namespace SunBurn
         private void Start()
         {
             //DrawSelectedItensOnScreen();
+
+            // start the timer for the game
+            coroutineTimer = CountDownTimer(30);
+            StartCoroutine(coroutineTimer);
+
+            //TesteGetXY(100, 3, "INCLUDE", sprite_Item_Coke, transform);
+            //TesteGetXY(100, 4, "INCLUDE", sprite_Item_Coke, transform);
+
+            timeSinceBegin = Time.time;
+
+        }
+
+        private void SetGameFininshed(string opt)
+        {
+            StopAllCoroutines();
+
+            debug_Allow_Coroutine_Sun = false;
+            debug_Allow_Coroutine_Itens = false;
+            debug_Allow_Coroutine_VanishItem = false;
+
+            coroutineSunState = null;
+            coroutineDrawItens = null;
+            coroutineVanishItem = null;
+
+
+            //txtScoreInPanel.SetText(GameManager.Instance.score.ToString());
+
+            panelEndGame.SetActive(true);
+
+            if (opt == "DEAD")
+            {
+
+            }
+            else
+            {
+
+            }
         }
 
 
         private void Update()
         {
 
+            //DrawDebugLinesQuadrants();
 
+            if (isHeatTime == true)
+            {
+                if (GameManager.Instance.isInvencible == false)
+                {
+
+                    if (GameManager.Instance.isOnShade == false)
+                    {
+
+                        if (GameManager.Instance.numberSunBlocks > 0)
+                        {
+                            GameManager.Instance.numberSunBlocks--;
+                            txtLabelSunBlockCounter.SetText("x" + GameManager.Instance.numberSunBlocks.ToString());
+
+                            if (GameManager.Instance.numberSunBlocks <= 0)
+                            {
+                                txtLabelSunBlockCounter.color = new Color(txtLabelSunBlockCounter.color.r, txtLabelSunBlockCounter.color.g, txtLabelSunBlockCounter.color.b, 0);
+                                sprRendSunBlockCounter.color = new Color(sprRendSunBlockCounter.color.r, sprRendSunBlockCounter.color.g, sprRendSunBlockCounter.color.b, 0);
+                            }
+
+                            GameManager.Instance.isInvencible = true;
+
+                            coroutineTimeInvensible = KeepPlayerInvensible(timeBeingInvencible);
+                            StartCoroutine(coroutineTimeInvensible);
+              
+                        }
+                        else
+                        {
+                            GameManager.Instance.playerIsDead = true;
+                            SetGameFininshed("DEAD");
+                        }
+
+                    }
+                }
+
+            }
+            else
+            {
+                //Debug.Log("IsHeatTime = FALSE");
+            }
+
+
+            //if (GameManager.Instance.isOnShade != true)
+            //{
+            //    if (GameManager.Instance.numberSunBlocks > 0)
+            //    {
+            //        GameManager.Instance.numberSunBlocks--;
+            //        txtLabelSunBlockCounter.SetText(GameManager.Instance.numberSunBlocks.ToString());
+
+            //        if (GameManager.Instance.numberSunBlocks == 0)
+            //        {
+            //            txtLabelSunBlockCounter.color = new Color(txtLabelSunBlockCounter.color.r, txtLabelSunBlockCounter.color.g, txtLabelSunBlockCounter.color.b, 0);
+            //        }
+            //    }
+            //    else
+            //    {
+
+            //        GameManager.Instance.playerIsDead = true;
+
+
+            //    }
+
+            //}
+
+
+            if (GameManager.Instance.playerIsDead == true)
+            {
+                //StopAllCoroutines();
+
+                //debug_Allow_Coroutine_Sun = false;
+                //debug_Allow_Coroutine_Itens = false;
+                //debug_Allow_Coroutine_VanishItem = false;
+
+                //coroutineSunState = null;
+                //coroutineDrawItens = null;
+                //coroutineVanishItem = null;
+
+                panelEndGame.SetActive(true);
+
+            }
+           
             // Coroutine: Sun cycles and heatTime defining
             if (isSunCyclingStates && coroutineSunState == null && debug_Allow_Coroutine_Sun)
             {
@@ -242,8 +506,6 @@ namespace SunBurn
                 coroutineDrawItens = wrapper_DrawSelectedItensOnScreen();
                 StartCoroutine(coroutineDrawItens);
             }
-
-
 
         }
 
@@ -296,7 +558,7 @@ namespace SunBurn
         private void DrawSelectedItensOnScreen()
         {
 
-            int rand_number;
+            int rand_number = -1;
 
             int player_quadrant = -1;
             int item_quadrant = -1;
@@ -307,18 +569,7 @@ namespace SunBurn
             // define player and item quadrants
             player_quadrant = GetQuadrant(player.transform.position);
 
-            //if (player_quadrant == 1) { item_quadrant = 3; }
-            //if (player_quadrant == 2) { item_quadrant = 4; }
-            //if (player_quadrant == 3) { item_quadrant = 1; }
-            //if (player_quadrant == 4) { item_quadrant = 2; }
 
-            //Debug.Log("Player Quadrante = " + player_quadrant + " | item_quadrant = " + item_quadrant);
-
-            // define the new item quadrand, oposed to the player
-            newItemPosition = GetXYforItem(player_quadrant);
-
-            // get the item quadrant
-            item_quadrant = GetQuadrant(newItemPosition);
             int x = 0;
 
             // remove any pre-existing item
@@ -347,32 +598,100 @@ namespace SunBurn
 
             //aItens_Used = new List<clsItemInGame>();
 
+            bool numberOK = false;
+            bool exitWhile = false;
 
-            // get a random item
-            rand_number = Random.Range(0, aItens_Avaliable.Count);
+            while (exitWhile == false)
+            {
+                // get a random item
 
-            //Debug.Log("aItens_Avaliable.Count = " + aItens_Avaliable.Count + " | number = " + rand_number + " | name = " + aItens_Avaliable[rand_number].name);
+                rand_number = Random.Range(0, aItens_Avaliable.Count);
 
-            GameObject go = RenderItemInScreen(aItens_Avaliable[rand_number].spriteObj,
-                                               newItemPosition,
-                                               transform,
-                                               aItens_Avaliable[rand_number].name);
+                //Debug.Log("aItens_Avaliable.Count = " + aItens_Avaliable.Count + " | number = " + rand_number + " | name = " + aItens_Avaliable[rand_number].name);
+
+                if (aItens_Avaliable[rand_number].name == "SUNBLOCKER")
+                {
+                    if ((GameManager.Instance.numberSunBlocks >= 2))
+                    {
+
+                        if (aItens_Avaliable.Count == 1)
+                        {
+                            aItens_Avaliable.RemoveAt(rand_number);
+                            exitWhile = true;
+                            numberOK = false;
+                        }
+                        else
+                        {
+                            exitWhile = false;
+                            numberOK = false;
+                        }
+
+                    }
+                    else
+                    {
+                        exitWhile = true;
+                        numberOK = true;
+                    }
+                }
+                else
+                {
+                    exitWhile = true;
+                    numberOK = true;
+                }
 
 
 
-            aItens_Used.Add(new clsItemInGame(aItens_Avaliable[rand_number],
-                                              item_quadrant,
-                                              go));
+            }
 
 
 
-            aItens_Avaliable.RemoveAt(rand_number);
+            if (numberOK == true)
+            {
+
+
+                // define the new item quadrand, different then the player's quadrant
+                newItemPosition = GetXYforItem(player_quadrant, new Vector2(aItens_Avaliable[rand_number].spriteObj.bounds.size.x, aItens_Avaliable[rand_number].spriteObj.bounds.size.y), percScaleItemSize);
+
+                // get the item quadrant
+                item_quadrant = GetQuadrant(newItemPosition);
+
+                bool flipItem = false;
+
+                if (aItens_Avaliable[rand_number].name != "SUNBLOCKER" && aItens_Avaliable[rand_number].name != "COKE" && aItens_Avaliable[rand_number].name != "DUCK")
+                {
+                    if (Random.Range(0, 2) == 0)
+                    {
+                        flipItem = true;
+                    }
+                }
+
+
+                GameObject go = RenderItemInScreen(aItens_Avaliable[rand_number].spriteObj,
+                                    newItemPosition,
+                                    transform,
+                                    aItens_Avaliable[rand_number].name,
+                                    "fore",
+                                    1,
+                                    flipItem
+                                    );
+
+
+
+
+                aItens_Used.Add(new clsItemInGame(aItens_Avaliable[rand_number],
+                                                  item_quadrant,
+                                                  go));
+
+
+
+                aItens_Avaliable.RemoveAt(rand_number);
+            }
 
         }
 
 
         // draw 1 specific object on screen
-        private GameObject RenderItemInScreen(Sprite theSprite, Vector3 position, Transform parent = null, string name = "NewGameObjRunTime")
+        private GameObject RenderItemInScreen(Sprite theSprite, Vector3 position, Transform parent = null, string name = "NewGameObjRunTime", string layer="fore", int orderInLayer=1, bool flipSprite=false)
         {
             GameObject go;
 
@@ -396,11 +715,80 @@ namespace SunBurn
             go.AddComponent<SpriteRenderer>();
             SpriteRenderer renderer = go.GetComponent<SpriteRenderer>();
             renderer.sprite = theSprite;
+            renderer.sortingLayerName = layer;
+            renderer.sortingOrder = orderInLayer;
+
+            if (flipSprite == true)
+            {
+                renderer.flipX = true;
+            }
+            
 
             go.AddComponent<BoxCollider2D>();
             go.GetComponent<BoxCollider2D>().isTrigger = true;
-
+            
             return go;
+        }
+
+
+
+        private void TesteGetXY(int qtde, int quadrant, string opt, Sprite sprite, Transform parent)
+        {
+
+            float scale = 0.15f;
+
+            for (int i = 0; i < qtde; i++)
+            {
+                Vector3 pos = GetXYforItem(quadrant, new Vector2(sprite.bounds.size.x, sprite.bounds.size.y), scale, opt);
+
+                GameObject go;
+
+                go = new GameObject();
+                go.name = "Test_" + sprite.name + "_" + i.ToString();
+                go.transform.SetParent(parent);
+                go.transform.position = pos;
+                go.transform.localScale = new Vector2(scale, scale);
+
+                go.AddComponent<SpriteRenderer>();
+                SpriteRenderer renderer = go.GetComponent<SpriteRenderer>();
+                renderer.sprite = sprite;
+
+                go.AddComponent<BoxCollider2D>();
+                go.GetComponent<BoxCollider2D>().isTrigger = true;
+
+                Debug.Log(i.ToString() + ". -- quadrant = " + quadrant + " | pos = " + pos + " | SizeX: " + gameQuadrantsCoord.offset_from_Zero_X + "| Y_Middle_HOR = " + gameQuadrantsCoord.Y_Middle_HOR + " | y_UP: " + gameQuadrantsCoord.offset_from_Zero_Y_to_top + " | y_DOWN: -" + gameQuadrantsCoord.offset_from_Zero_Y_to_bottom);
+
+
+
+            }
+        }
+
+
+        private void DrawDebugLinesQuadrants()
+        {
+
+            Color color_red = new Color(1f, 0, 0, 1f);
+            Color color_blue = new Color(0, 0, 1f, 1f);
+
+
+            // line HORIZONTAL TOP
+            Debug.DrawLine(new Vector3(gameQuadrantsCoord.X_TL, gameQuadrantsCoord.Y_TL, 0), new Vector3(gameQuadrantsCoord.X_TR, gameQuadrantsCoord.Y_TR, 0), color_red);
+
+            // line HORIZONTAL BOTTOM
+            Debug.DrawLine(new Vector3(gameQuadrantsCoord.X_BL, gameQuadrantsCoord.Y_BL, 0), new Vector3(gameQuadrantsCoord.X_BR, gameQuadrantsCoord.Y_BR, 0), color_red);
+
+            // line VERTICAL LEFT
+            Debug.DrawLine(new Vector3(gameQuadrantsCoord.X_TL, gameQuadrantsCoord.Y_TL, 0), new Vector3(gameQuadrantsCoord.X_BL, gameQuadrantsCoord.Y_BL, 0), color_red);
+
+            // line VERTICAL RIGHT
+            Debug.DrawLine(new Vector3(gameQuadrantsCoord.X_TR, gameQuadrantsCoord.Y_TR, 0), new Vector3(gameQuadrantsCoord.X_BR, gameQuadrantsCoord.Y_BR, 0), color_red);
+
+            // line HORIZONTAL MIDDLE
+            Debug.DrawLine(new Vector3(-gameQuadrantsCoord.offset_from_Zero_X, gameQuadrantsCoord.Y_Middle_HOR, 0), new Vector3(gameQuadrantsCoord.offset_from_Zero_X, gameQuadrantsCoord.Y_Middle_HOR, 0), color_blue);
+
+            // line VERTICAL MIDDLE
+            Debug.DrawLine(new Vector3(0, gameQuadrantsCoord.offset_from_Zero_Y_to_top, 0), new Vector3(0, -gameQuadrantsCoord.offset_from_Zero_Y_to_bottom, 0), color_blue);
+
         }
 
 
@@ -411,10 +799,10 @@ namespace SunBurn
 
             //Debug.Log("pos = " + objPos + " | backWidth = " + backWidth + " | backHeight = " + backHeight + " | norm = " + GameObject.Find("Background").GetComponent<SpriteRenderer>().bounds.size.normalized);
             //Debug.Log("pos = " + objPos + " | backWidth = " + backWidth + " | backHeight = " + backHeight + " | obj8 = " + aItens_Avaliable[8].spriteObj.bounds.size.y * percScaleItemSize);
-     
-            if (objPos.x <= 0)
+
+            if (objPos.x <= gameQuadrantsCoord.X_Middle_VERT)
             {
-                if (objPos.y <= 0)
+                if (objPos.y <= gameQuadrantsCoord.Y_Middle_HOR)
                 {
                     ret = 4;
                 }
@@ -425,7 +813,7 @@ namespace SunBurn
             }
             else
             {
-                if (objPos.y <= 0)
+                if (objPos.y <= gameQuadrantsCoord.Y_Middle_HOR)
                 {
                     ret = 3;
                 }
@@ -435,12 +823,13 @@ namespace SunBurn
                 }
             }
 
+
             return ret;
         }
 
 
         // get a xy position, random, for the item. It can use a specific quadrant (include) or a random other then the specified (exclude)
-        private Vector3 GetXYforItem(int quadrant, string opt="EXCLUDE")
+        private Vector3 GetXYforItem(int quadrant, Vector2 sprite_size, float scale, string opt="EXCLUDE")
         {
             Vector3 retVec;
             int chosenQuadrant = -1;
@@ -489,80 +878,227 @@ namespace SunBurn
             float _rand_X = 0;
             float _rand_Y = 0;
 
+            // gets half of the sprite size to subtract from the avaliable size, so the sprite borders dont pass the limit
+            sprite_size = (sprite_size / 2) * scale;
+
             if (chosenQuadrant == 1) 
             {
-                _rand_X = Random.Range(-3f, 0.001f);
-                _rand_Y = Random.Range(0f, 1.55f);
+                _rand_X = Random.Range(gameQuadrantsCoord.X_Middle_VERT, (gameQuadrantsCoord.X_TL - 0.001f) + sprite_size.x);
+                _rand_Y = Random.Range(gameQuadrantsCoord.Y_Middle_HOR, (gameQuadrantsCoord.Y_TL + 0.001f) - sprite_size.y);
+
+                //// test if width explode to right
+                //if ((_rand_X + sprite_size.x) > gameQuadrantsCoord.X_Middle_VERT)
+                //{
+                //    _rand_X = gameQuadrantsCoord.X_Middle_VERT - sprite_size.x;
+                //}
+
+                // test if width explode to left
+                if ((_rand_X - sprite_size.x) < -gameQuadrantsCoord.offset_from_Zero_X)
+                {
+                    _rand_X = -gameQuadrantsCoord.offset_from_Zero_X + sprite_size.x;
+                }
+
+                //// test if width explode to bottom
+                //if ((_rand_Y - sprite_size.y) < gameQuadrantsCoord.Y_Middle_HOR)
+                //{
+                //    _rand_Y = gameQuadrantsCoord.Y_Middle_HOR + sprite_size.y;
+                //}
+
+                // test if width explode to top
+                if ((_rand_Y + sprite_size.y) > gameQuadrantsCoord.offset_from_Zero_Y_to_top)
+                {
+                    _rand_Y = gameQuadrantsCoord.offset_from_Zero_Y_to_top - sprite_size.y;
+                }
             }
 
             if (chosenQuadrant == 2) 
             {
-                _rand_X = Random.Range(0f, 3.001f);
-                _rand_Y = Random.Range(0f, 1.55f);
+                _rand_X = Random.Range(gameQuadrantsCoord.X_Middle_VERT, (gameQuadrantsCoord.X_TR + 0.001f) - sprite_size.x);
+                _rand_Y = Random.Range(gameQuadrantsCoord.Y_Middle_HOR, (gameQuadrantsCoord.Y_TR + 0.001f) - sprite_size.y);
+
+                // test if width explode to right
+                if ((_rand_X + sprite_size.x) > gameQuadrantsCoord.offset_from_Zero_X)
+                {
+                    _rand_X = gameQuadrantsCoord.offset_from_Zero_X - sprite_size.x;
+                }
+
+                //// test if width explode to left
+                //if ((_rand_X - sprite_size.x) < gameQuadrantsCoord.X_Middle_VERT)
+                //{
+                //    _rand_X = -gameQuadrantsCoord.X_Middle_VERT + sprite_size.x;
+                //}
+
+                //// test if width explode to bottom
+                //if ((_rand_Y - sprite_size.y) < gameQuadrantsCoord.Y_Middle_HOR)
+                //{
+                //    _rand_Y = gameQuadrantsCoord.Y_Middle_HOR + sprite_size.y;
+                //}
+
+                // test if width explode to top
+                if ((_rand_Y + sprite_size.y) > gameQuadrantsCoord.offset_from_Zero_Y_to_top)
+                {
+                    _rand_Y = gameQuadrantsCoord.offset_from_Zero_Y_to_top - sprite_size.y;
+                }
             }
 
             if (chosenQuadrant == 3) 
             {
-                _rand_X = Random.Range(0f, 3.001f);
-                _rand_Y = Random.Range(-4.2f, 0.001f);
+                //_rand_X = Random.Range(gameQuadrantsCoord.X_Middle_VERT, (gameQuadrantsCoord.X_BR + 0.001f) - sprite_size.x);
+                //_rand_Y = Random.Range(gameQuadrantsCoord.Y_Middle_HOR, (gameQuadrantsCoord.Y_BR - 0.001f) + sprite_size.y);
+                
+                _rand_X = Random.Range(gameQuadrantsCoord.X_Middle_VERT, (gameQuadrantsCoord.X_BR + 0.001f));
+                _rand_Y = Random.Range(gameQuadrantsCoord.Y_Middle_HOR, (gameQuadrantsCoord.Y_BR - 0.001f));
+
+
+                // test if width explode to right
+                if ((_rand_X + sprite_size.x) > gameQuadrantsCoord.offset_from_Zero_X)
+                {
+                    _rand_X = gameQuadrantsCoord.offset_from_Zero_X - sprite_size.x;
+                }
+
+                //// test if width explode to left
+                //if ((_rand_X - sprite_size.x) < gameQuadrantsCoord.X_Middle_VERT)
+                //{
+                //    _rand_X = gameQuadrantsCoord.X_Middle_VERT + sprite_size.x;
+                //}
+
+                // test if width explode to bottom
+                if ((_rand_Y - sprite_size.y) < -gameQuadrantsCoord.offset_from_Zero_Y_to_bottom)
+                {
+                   _rand_Y = -gameQuadrantsCoord.offset_from_Zero_Y_to_bottom + sprite_size.y;
+                }
+
+                //// test if width explode to top
+                //if ((_rand_Y + sprite_size.y) > gameQuadrantsCoord.Y_Middle_HOR)
+                //{
+                //    _rand_Y = gameQuadrantsCoord.Y_Middle_HOR - sprite_size.y;
+                //}
+
+
             }
 
             if (chosenQuadrant == 4) 
             {
-                _rand_X = Random.Range(-3f, 0.001f);
-                _rand_Y = Random.Range(-4.2f, 0.001f);
+                _rand_X = Random.Range(gameQuadrantsCoord.X_Middle_VERT, (gameQuadrantsCoord.X_BL - 0.001f) + sprite_size.x);
+                _rand_Y = Random.Range(gameQuadrantsCoord.Y_Middle_HOR, (gameQuadrantsCoord.Y_BL - 0.001f) + sprite_size.y);
+
+
+                // test if width explode to right
+                if ((_rand_X + sprite_size.x) > gameQuadrantsCoord.X_Middle_VERT)
+                {
+                    _rand_X = gameQuadrantsCoord.X_Middle_VERT - sprite_size.x;
+                }
+
+                //// test if width explode to left
+                //if ((_rand_X - sprite_size.x) < -gameQuadrantsCoord.offset_from_Zero_X)
+                //{
+                //    _rand_X = -gameQuadrantsCoord.offset_from_Zero_X + sprite_size.x;
+                //}
+
+                //// test if width explode to bottom
+                //if ((_rand_Y - sprite_size.y) < -gameQuadrantsCoord.offset_from_Zero_Y_to_bottom)
+                //{
+                //    _rand_Y = -gameQuadrantsCoord.offset_from_Zero_Y_to_bottom + sprite_size.y;
+                //}
+
+                // test if width explode to top
+                if ((_rand_Y + sprite_size.y) > gameQuadrantsCoord.Y_Middle_HOR)
+                {
+                    _rand_Y = gameQuadrantsCoord.Y_Middle_HOR - sprite_size.y;
+                }
+
             }
 
             retVec = new Vector3(_rand_X, _rand_Y, 1);
 
-            //Debug.Log("chosenQuadrant = " + chosenQuadrant + " | GetQuadrant = " + GetQuadrant(retVec) + " | retVec = " + retVec);
+            //Debug.Log("chosenQuadrant = " + chosenQuadrant + " | retVec = " + retVec + " | GetQuadrant(retVec) = " + GetQuadrant(retVec) + " | SizeX: " + gameQuadrantsCoord.offset_from_Zero_X + "| y_UP: " + gameQuadrantsCoord.offset_from_Zero_Y_to_top + " | y_DOWN: -" + gameQuadrantsCoord.offset_from_Zero_Y_to_bottom);
 
             return retVec;
         }
 
 
 
+
+        public void OnTriggerExit2D_fromPlayerMove(Collider2D collider)
+        {
+            if (collider.name == "UMBRELLA")
+            {
+                GameManager.Instance.isOnShade = false;
+            }
+        }
+
+
         public void OnTriggerEnter2D_fromPlayerMove(Collider2D collider)
         {
             Debug.Log("Colisao: " + collider.name);
 
-            // stop vanish corroutine if collider is vanishing
-            SpriteRenderer spr = collider.GetComponent<SpriteRenderer>();
 
-            if (spr.color.a < 1f)
+            if (collider.name == "UMBRELLA")
             {
-                if (coroutineVanishItem != null)
-                {
-                    StopCoroutine(coroutineVanishItem);
-                    coroutineVanishItem = null;
-                }
+                GameManager.Instance.isOnShade = true;
             }
-
-            // tint item green and alpha 100%
-            spr.color = new Color(0, 1f, 0f, 1f);
-
-            //Debug.Break();
-
-
-            // account points
-
-            // destroy item
-
-            int i = 0;
-            int indexUsedItem = -1;
-
-            foreach (clsItemInGame item in aItens_Used)
+            else
             {
-                if (item.name == collider.name)
+
+
+                if (collider.name == "SUNBLOCKER")
                 {
-                    indexUsedItem = i;
-                    break;
+                    GameManager.Instance.numberSunBlocks++;
+
+                    if (GameManager.Instance.numberSunBlocks >= 1)
+                    {
+                        sprRendSunBlockCounter.color = new Color(sprRendSunBlockCounter.color.r, sprRendSunBlockCounter.color.g, sprRendSunBlockCounter.color.b, 1);
+                        txtLabelSunBlockCounter.color = new Color(txtLabelSunBlockCounter.color.r, txtLabelSunBlockCounter.color.g, txtLabelSunBlockCounter.color.b, 1);
+                        txtLabelSunBlockCounter.SetText("x" + GameManager.Instance.numberSunBlocks.ToString());
+                    }
                 }
 
-                i++;
+
+                // stop vanish corroutine if collider is vanishing
+                SpriteRenderer spr = collider.GetComponent<SpriteRenderer>();
+
+                if (spr.color.a < 1f)
+                {
+                    if (coroutineVanishItem != null)
+                    {
+                        StopCoroutine(coroutineVanishItem);
+                        coroutineVanishItem = null;
+                    }
+                }
+
+                // tint item green and alpha 100%
+                spr.color = new Color(0, 1f, 0f, 1f);
+
+
+
+                // get index of  iten in used itens array
+                int i = 0;
+                int indexUsedItem = -1;
+
+                foreach (clsItemInGame item in aItens_Used)
+                {
+                    if (item.name == collider.name)
+                    {
+                        indexUsedItem = i;
+                        break;
+                    }
+
+                    i++;
+                }
+
+                // account points
+                if (indexUsedItem >= 0)
+                {
+                    GameManager.Instance.score += aItens_Used[indexUsedItem].value;
+
+                    txtScore.SetText(GameManager.Instance.score.ToString());
+                }
+
+                // destroy item
+                RemoveItemFromGame(indexUsedItem, collider.gameObject);
+
             }
 
-            RemoveItemFromGame(indexUsedItem, collider.gameObject);
         }
 
         private void RemoveItemFromGame(int indexUsedItem, GameObject go)
@@ -583,6 +1119,8 @@ namespace SunBurn
             tintBackGroundGameObject.SetActive(theState);
             glowSunGameObject.SetActive(theState);
             glowAnimator.SetBool("isHeatTime", theState);
+
+
         }
         
         
@@ -596,7 +1134,16 @@ namespace SunBurn
 
             while (isSunCyclingStates)
             {
-                number = Random.Range(1, 101);
+
+                if (Time.time >= timeSinceBegin + 3f)
+                {
+                    number = Random.Range(1, 101);
+                }
+                else
+                {
+                    number = Random.Range(1, percAlmostSun + percNoSun);
+                }
+                
 
                 if (number <= percNoSun)
                 {
@@ -714,6 +1261,95 @@ namespace SunBurn
             coroutineVanishItem = null;
 
             RemoveItemFromGame(indexUsedItem, go);
+
+        }
+
+        private IEnumerator CountDownTimer(int totalSeconds = 60)
+        {
+            bool exitWhile = false;
+            int countSeconds = totalSeconds;
+
+            string outTime = "";
+
+
+            if (totalSeconds == 60)
+            {
+                txtLabelTimerValue.SetText("00:01:00");
+
+            }
+            else
+            {
+                txtLabelTimerValue.SetText("00:00:" + totalSeconds.ToString());
+            }
+
+
+
+            while (exitWhile == false)
+            {
+                yield return new WaitForSecondsRealtime(1f);
+
+                countSeconds--;
+
+                if (countSeconds <= 9)
+                {
+                    outTime = "0" + countSeconds.ToString();
+                }
+                else
+                {
+                    outTime = countSeconds.ToString();
+                }
+
+                txtLabelTimerValue.SetText("00:00:" + outTime);
+
+                if (countSeconds <= 0)
+                {
+                    exitWhile = true;
+                }
+
+            }
+
+            StopCoroutine(coroutineTimer);
+            coroutineTimer = null;
+
+        }
+
+
+
+
+        private IEnumerator KeepPlayerInvensible(float totalTimeInvensible = 3f)
+        {
+                
+            bool exitWhile = false;
+            int countBlink = 0;
+
+            GameManager.Instance.isInvencible = true;
+
+
+            while (exitWhile == false)
+            {
+
+                playerRender.color = new Color(playerRender.color.r, playerRender.color.g, playerRender.color.b, 0);
+
+                yield return new WaitForSecondsRealtime(0.07f);
+
+                playerRender.color = new Color(playerRender.color.r, playerRender.color.g, playerRender.color.b, 1);
+
+                yield return new WaitForSecondsRealtime(0.07f);
+
+
+                if (countBlink >= 10)
+                {
+                    exitWhile = true;
+                }
+
+                countBlink++;
+
+            }
+
+            GameManager.Instance.isInvencible = false;
+
+            StopCoroutine(coroutineTimeInvensible);
+            coroutineTimeInvensible = null;
 
         }
 

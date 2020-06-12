@@ -13,6 +13,11 @@ namespace SubBurn
 
         public string gameState;
         public float playareaOffsetFromTop;
+        public int score;
+        public bool isOnShade;
+        public bool playerIsDead;
+        public int numberSunBlocks;
+        public bool isInvencible;
 
         private void Awake()
         {
@@ -49,6 +54,23 @@ namespace SubBurn
 
             SceneManager.LoadScene("Resources/Scenes/MainMenu");
         }
+
+        public void Call_StartCoroutine(IEnumerator func)
+        {
+            StartCoroutine(func);
+        }
+
+        public void Call_StopCoroutine(IEnumerator func)
+        {
+            if (func != null)
+            {
+                StopCoroutine(func);
+            }            
+        }
+
+
+   
+
     }
 
 

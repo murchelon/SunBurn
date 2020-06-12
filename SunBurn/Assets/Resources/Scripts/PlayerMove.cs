@@ -1,6 +1,7 @@
 ﻿using SubBurn;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 
 
@@ -22,7 +23,12 @@ namespace SunBurn
         private Sprite spriteBack;
         private Sprite spriteFront;
 
-        
+        private Sprite spriteLeft_shade;
+        private Sprite spriteRight_shade;
+        private Sprite spriteBack_shade;
+        private Sprite spriteFront_shade;
+
+
 
         private SpriteRenderer playerSpriteRender;
         private Rigidbody2D playerRb;
@@ -38,13 +44,24 @@ namespace SunBurn
         private float minBound_y;
         private float maxBound_y;
 
+        public GameLogic gLogic;
+
         private void OnTriggerEnter2D(Collider2D collider)
         {
-            GameObject.Find("GameLogic").gameObject.GetComponent<GameLogic>().OnTriggerEnter2D_fromPlayerMove(collider);
+            gLogic.OnTriggerEnter2D_fromPlayerMove(collider);
         }
+
+        public void OnTriggerExit2D(Collider2D collider)
+        {
+            gLogic.OnTriggerExit2D_fromPlayerMove(collider);
+        }
+
 
         private void Start()
         {
+
+            gLogic = GameObject.Find("GameLogic").gameObject.GetComponent<GameLogic>();
+
             if (moveSpeed == 0)
             {
                 moveSpeed = 100f;   // huge velocity ... just to be obvious that this var was not defined elsewhere in the code
@@ -69,19 +86,24 @@ namespace SunBurn
 
             minBound_y = 0f - backHeightOffset + playerHeightOffset;
             maxBound_y = 0f + backHeightOffset - playerHeightOffset - GameManager.Instance.playareaOffsetFromTop;
-            
+
 
             spriteLeft = Resources.Load("images/Player_ESQ", typeof(Sprite)) as Sprite;
             spriteRight = Resources.Load("images/Player_DIR", typeof(Sprite)) as Sprite;
             spriteBack = Resources.Load("images/Player_TRAS", typeof(Sprite)) as Sprite;
             spriteFront = Resources.Load("images/Player_FRENTE", typeof(Sprite)) as Sprite;
 
+            spriteLeft_shade = Resources.Load("images/Player_ESQ_Sombra", typeof(Sprite)) as Sprite;
+            spriteRight_shade = Resources.Load("images/Player_DIR_Sombra", typeof(Sprite)) as Sprite;
+            spriteBack_shade = Resources.Load("images/Player_TRAS_Sombra", typeof(Sprite)) as Sprite;
+            spriteFront_shade = Resources.Load("images/Player_FRENTE_Sombra", typeof(Sprite)) as Sprite;
 
 
 
 
 
-    }
+
+        }
 
         private void Update()
         {
@@ -95,7 +117,32 @@ namespace SunBurn
         {
             // physics
 
-            
+
+            Sprite spriteFront_ToUse;
+            Sprite spriteBack_ToUse;
+            Sprite spriteLeft_ToUse;
+            Sprite spriteRight_ToUse;
+
+            if (GameManager.Instance.playerIsDead == true)
+            {
+                return;
+            }
+
+
+            if (GameManager.Instance.isOnShade == true)
+            {
+                spriteFront_ToUse = spriteFront_shade;
+                spriteBack_ToUse = spriteBack_shade;
+                spriteLeft_ToUse = spriteLeft_shade;
+                spriteRight_ToUse = spriteRight_shade;
+            }
+            else
+            {
+                spriteFront_ToUse = spriteFront;
+                spriteBack_ToUse = spriteBack;
+                spriteLeft_ToUse = spriteLeft;
+                spriteRight_ToUse = spriteRight;
+            }
 
             //Debug.Log(movement.x + ", " + movement.y);
 
@@ -103,31 +150,31 @@ namespace SunBurn
             {
                 if (movement.y == 1)
                 {
-                    playerSpriteRender.sprite = spriteBack;
+                    playerSpriteRender.sprite = spriteBack_ToUse;
                 }
                 else
                 {
-                    playerSpriteRender.sprite = spriteLeft;
+                    playerSpriteRender.sprite = spriteLeft_ToUse;
                 }
             }
             else if (movement.x == 1)
             {
                 if (movement.y == 1)
                 {
-                    playerSpriteRender.sprite = spriteBack;
+                    playerSpriteRender.sprite = spriteBack_ToUse;
                 }
                 else
                 {
-                    playerSpriteRender.sprite = spriteRight;
+                    playerSpriteRender.sprite = spriteRight_ToUse;
                 }
             }
             else if (movement.y == 1)
             {
-                playerSpriteRender.sprite = spriteBack;
+                playerSpriteRender.sprite = spriteBack_ToUse;
             }
             else
             {
-                playerSpriteRender.sprite = spriteFront;
+                playerSpriteRender.sprite = spriteFront_ToUse;
             }
 
 
@@ -146,14 +193,11 @@ namespace SunBurn
 
             //rb.transform.position = pos;
 
-
-
-        }
-
-        private void LateUpdate()
-        {
+            //Debug.Log(newPos);
 
         }
+
+
 
     }
 }
